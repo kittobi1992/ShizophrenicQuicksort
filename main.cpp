@@ -1,9 +1,12 @@
 #include <mpi.h>
 #include <bits/stdc++.h>
+#include "QuickSort.h"
 
 using namespace std;
 
 int main(int argc, char** argv) {
+    srand (time (NULL));
+  
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
 
@@ -18,7 +21,6 @@ int main(int argc, char** argv) {
     int N, *data, *pdata; 
     if(world_rank == 0) {
       cin >> N;
-      cout << N << endl;
       data = (int *) malloc(N*sizeof(int));
       for(int i = 0; i < N; i++) {
 	cin >> data[i];
@@ -30,18 +32,9 @@ int main(int argc, char** argv) {
     pdata = (int *) malloc(split_size*sizeof(int));
     MPI_Scatter(data,split_size,MPI_INT,pdata,split_size,MPI_INT,0,MPI_COMM_WORLD);
 
-    // Get the name of the processor
-    char processor_name[MPI_MAX_PROCESSOR_NAME];
-    int name_len;
-    MPI_Get_processor_name(processor_name, &name_len);
-
-    // Print off a hello world message
-    cout << "Elements of processor " << world_rank << ": " << endl;
-    for(int i = 0; i < split_size; i++) {
-      cout << pdata[i] << " ";
-    }
-    cout << endl;
-
+    QuickSort<int> *qs = new QuickSort<int>(world_rank,world_size,split_size,pdata);
+    qs->quickSort(0,world_size-1);
+    
     // Finalize the MPI environment.
     MPI_Finalize();
 }

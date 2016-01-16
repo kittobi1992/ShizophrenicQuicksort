@@ -1,0 +1,5 @@
+{
+    "name": "ShizopgrenicQuicksort",
+    "directory": "/home/theuer/Dokumente/ShizopgrenicQuicksort",
+    "files": [ { "filters": [ "*.cpp", "*.h", "*.cc"] } ]
+}
