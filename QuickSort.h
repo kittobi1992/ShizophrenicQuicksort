@@ -18,63 +18,98 @@ template<typename T>
 class QuickSort {
  
 public:
-  QuickSort(int rank, int world_size, int N, T *data) : rank(rank), world_size(world_size), N(N), data(data) { }
+  QuickSort(int N, T *data) : N(N), data(data) { }
   
-  void quickSort(int i, int j) {
-    int pivot = getPivot();
+  void quickSort(int start_pid, int start, int end, MPI_Comm comm) {
+    int world_size, rank;
+    MPI_Comm_size(comm,&world_size);
+    MPI_Comm_rank(comm, &rank);
+    pair<int,int> startIdx = getProcessIdx(start_pid,start), endIdx = getProcessIdx(start_pid,end-1);
+    if(world_size == 0)
+      return;
+    else if(world_size == 1) {
+      sort(data+startIdx.second,data+endIdx.second+1);
+      return;
+    }
+    
+    
     int largeIdx = 0;
-    for(int i = 0; i < N; i++) {
+    if(rank != startIdx.first)
+      startIdx.second = 0;
+    if(rank != endIdx.first)
+      endIdx.second = N-1;
+    int pivot = getPivot(rank,world_size,startIdx.second,endIdx.second+1,comm);
+    for(int i = startIdx.second; i < endIdx.second+1; i++) {
       if(data[i] <= pivot) {
-	swap(data[i],data[largeIdx]);
-	largeIdx++;
+	swap(data[i],data[startIdx.second+largeIdx++]);
       }
     }
     int prefix_sum;
-    MPI_Scan(&largeIdx,&prefix_sum,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Scan(&largeIdx,&prefix_sum,1,MPI_INT,MPI_SUM,comm);
     prefix_sum -= largeIdx;
     int *new_data = (int *) malloc(N*sizeof(int));
     for(int i = 0; i < N; i++)
       new_data[i] = 0;
     
-    for(int i = 0; i < N; i++) {
-      cout << data[i] << "("<<rank<<") ";
-    }
-    cout << endl;
-    MPI_Barrier(MPI_COMM_WORLD);
+    //printArray(N,rank,data);
+ 
+    cout << start_pid+rank << " " << start << " " << end << endl;
     
-    sendData(0,prefix_sum,data,new_data,largeIdx);
+    sendData(start,start_pid,prefix_sum,data+startIdx.second,new_data,largeIdx,comm);
     prefix_sum += largeIdx;
     int small_elements = prefix_sum;
-    if(rank == world_size-1)
-      cout << "Small Elements: " << small_elements << endl;
-    MPI_Bcast(&small_elements,1,MPI_INT,world_size-1,MPI_COMM_WORLD);
-    int large_elements = N-largeIdx;
-    MPI_Scan(&large_elements,&prefix_sum,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Bcast(&small_elements,1,MPI_INT,world_size-1,comm);
+    int large_elements = (endIdx.second-startIdx.second+1)-largeIdx;
+    MPI_Scan(&large_elements,&prefix_sum,1,MPI_INT,MPI_SUM,comm);
     prefix_sum -= large_elements;
-    sendData(small_elements,prefix_sum,data+largeIdx,new_data,large_elements);
+    sendData(start+small_elements,start_pid,prefix_sum,data+startIdx.second+largeIdx,new_data,large_elements,comm);
     
-    swap(data,new_data);
-    for(int i = 0; i < N; i++) {
-      cout << data[i] << "("<<rank<<") ";
-    }
-    cout << endl;
+    cout << start_pid+rank << " " << start << " " << end << endl;
     
+    for(int i = startIdx.second; i < endIdx.second+1; i++)
+      data[i] = new_data[i];
+    
+    //printArray(N,start_pid+rank,data);
+    
+    MPI_Comm left, right;
+    if(small_elements == end-start)
+      return;
+    pair<int,int> new_start_pid = createNewCommunicators(start_pid,start,start+small_elements,end,comm,&left,&right);
+    if(MPI_COMM_NULL != left)
+      quickSort(new_start_pid.first+start_pid,start,start+small_elements,left);
+
+    if(MPI_COMM_NULL != right)
+      quickSort(new_start_pid.second+start_pid,start+small_elements,end,right);
+  }
+  
+   T* getData() {
+    return data;
   }
   
 private:
   
-  int getPivot() {
-    int pivot = data[rand() % N];
-    int pivotPE = globalRandInt(world_size);
-    MPI_Bcast(&pivot,1,MPI_INT,pivotPE,MPI_COMM_WORLD);
-    if(rank == pivotPE)
-      cout << "Pivot: "<< pivot << endl;
+  int getPivot(int rank, int world_size, int start, int end, MPI_Comm &comm) {
+    int c = 5;
+    int pivot = 0;
+    for(int i = 0; i < c; i++) {
+      pivot += data[start + rand() % (end-start)];
+    }
+    pivot /= c;
+    int pivotPE;
+    if(rank == 0)
+      pivotPE = rand() % world_size;
+    MPI_Bcast(&pivotPE,1,MPI_INT,0,comm);
+    MPI_Bcast(&pivot,1,MPI_INT,pivotPE,comm);
     return pivot;
   }
   
-  void sendData(int start_idx, int prefix_sum, int *data, int *new_data, int length) {
-    pair<int,int> process_idx = getProcessIdx(start_idx+prefix_sum);
-    cout << process_idx.first << " " << process_idx.second << " " << length << endl;
+  void sendData(int start_idx, int start_pid, int prefix_sum, int *data, int *new_data, int length, MPI_Comm &comm) {
+    
+    int world_size, rank;
+    MPI_Comm_size(comm,&world_size);
+    MPI_Comm_rank(comm, &rank);
+    
+    pair<int,int> process_idx = getProcessIdx(start_pid,start_idx+prefix_sum);
     int *data_send = (int *) malloc(world_size*sizeof(int));
     int *data_length_send = (int *) malloc(world_size*sizeof(int));
     int *data_recv = (int *) malloc(world_size*sizeof(int));
@@ -89,40 +124,63 @@ private:
 	if(length == 0)
 	  process_idx.first = -1;
 	else {
-	  process_idx = getProcessIdx(start_idx+prefix_sum);
+	  process_idx = getProcessIdx(start_pid,start_idx+prefix_sum);
 	}
       } else 
 	data_send[i] = -1;
     } 
-    MPI_Alltoall(data_send,1,MPI_INT,data_recv,1,MPI_INT,MPI_COMM_WORLD);
-    MPI_Alltoall(data_length_send,1,MPI_INT,data_length_recv,1,MPI_INT,MPI_COMM_WORLD);
     
+    MPI_Alltoall(data_send,1,MPI_INT,data_recv,1,MPI_INT,comm);
+    MPI_Alltoall(data_length_send,1,MPI_INT,data_length_recv,1,MPI_INT,comm);
+    
+    //Buggy bug bug
     int idx = 0;
     for(int i = 0; i < world_size; i++) {
 	if(data_send[i] != -1) {
-	  MPI_Send(data+idx,data_length_send[i],MPI_INT,i,42,MPI_COMM_WORLD);
+	  MPI_Send(data+idx,data_length_send[i],MPI_INT,i,42,comm);
 	  idx += data_length_send[i];
 	}
     }
     for(int i = 0; i < world_size; i++) {
 	MPI_Status status;
 	if(data_recv[i] != -1)
-	  MPI_Recv(new_data+data_recv[i],data_length_recv[i],MPI_INT,i,42,MPI_COMM_WORLD,&status);
+	  MPI_Recv(new_data+data_recv[i],data_length_recv[i],MPI_INT,i,42,comm,&status);
     }
     
   }
   
-  void printArray(int N, int *array) {
+  pair<int,int> createNewCommunicators(int start_pid, int start, int middle, int end, MPI_Comm comm, MPI_Comm *left, MPI_Comm *right) {
+      MPI_Group group;
+      MPI_Comm_group(comm,&group);
+      pair<int,int> startIdx = getProcessIdx(start_pid,start), middleIdx1 = getProcessIdx(start_pid,middle-1), 
+		    middleIdx2 = getProcessIdx(start_pid,middle),endIdx = getProcessIdx(start_pid,end-1);
+      int size_left = (middleIdx1.first-startIdx.first+1), size_right = (endIdx.first-middleIdx2.first+1);
+      int *ranks_left = (int *) malloc(size_left*sizeof(int));
+      int *ranks_right = (int *) malloc(size_right*sizeof(int));
+      for(int i = 0; i < size_left; i++)
+	ranks_left[i] = startIdx.first+i;
+      for(int i = 0; i < size_right; i++)
+	ranks_right[i] = middleIdx2.first+i;
+      MPI_Group group_left, group_right;
+      MPI_Group_incl(group,size_left,ranks_left,&group_left);
+      MPI_Group_incl(group,size_right,ranks_right,&group_right);
+      MPI_Comm_create(comm,group_left,left);
+      MPI_Comm_create(comm,group_right,right);
+      return make_pair(startIdx.first,middleIdx2.first);
+  }
+  
+  void printArray(int N, int rank, int *array) {
     for(int i = 0; i < N; i++)
       cout << array[i] << "("<<rank<<") ";
     cout << endl;
   }
   
-  pair<int,int> getProcessIdx(int idx) {
-    return make_pair(idx/N,idx-(idx/N)*N);
+  
+  pair<int,int> getProcessIdx(int start_pid,int idx) {
+    return make_pair(idx/N-start_pid,idx%N);
   }
   
-  int rank, world_size, N;
+  int N;
   T *data;
   
 };
