@@ -139,6 +139,7 @@ private:
     int pivotPE;
     if(rank == 0)
       pivotPE = rand() % world_size;
+    MPI_Request *req; MPI_Status *status;
     MPI_Bcast(&pivotPE,1,MPI_INT,0,comm);
     MPI_Bcast(&pivot,1,MPI_INT,pivotPE,comm);
     return pivot;
@@ -155,9 +156,12 @@ private:
     int *data_length_send = (int *) malloc(world_size*sizeof(int));
     int *data_recv = (int *) malloc(world_size*sizeof(int));
     int *data_length_recv = (int *) malloc(world_size*sizeof(int));
+    int send_count = 0, recv_count = 0;
     for(int i = 0; i < world_size; i++) {
       data_length_send[i] = 0;
       if(i == process_idx.first) {
+	if(i != rank)
+	  send_count++;
 	data_send[i] = process_idx.second;
 	data_length_send[i] = min(N-data_send[i],length);
 	prefix_sum += data_length_send[i];
@@ -175,14 +179,21 @@ private:
     
     MPI_Alltoall(data_send,1,MPI_INT,data_recv,1,MPI_INT,comm);
     MPI_Alltoall(data_length_send,1,MPI_INT,data_length_recv,1,MPI_INT,comm);
+    
+    for(int i = 0; i < world_size; i++) {
+	if(data_recv[i] != -1 && i != rank)
+	  recv_count++;
+    }
    
-
+    MPI_Request *send_req = (MPI_Request *) malloc(send_count*sizeof(MPI_Request));
+    MPI_Request *recv_req = (MPI_Request *) malloc(recv_count*sizeof(MPI_Request));
+    int send_idx = 0, recv_idx = 0;
     for(int i = 0; i < world_size; i++) {
 	if(rank == i) {
 	  int idx = 0;
 	  for(int j = 0; j < world_size; j++) {
 	    if(data_send[j] != -1 && j != rank) {
-	      MPI_Send(data+idx,data_length_send[j],MPI_INT,j,42,comm);
+	      MPI_Isend(data+idx,data_length_send[j],MPI_INT,j,42,comm,&send_req[send_idx++]);
 	      idx += data_length_send[j];
 	    } else if(rank == j && data_send[j] != -1) {
 	      for(int k = 0; k < data_length_send[rank]; k++)
@@ -194,9 +205,14 @@ private:
 	else {
 	  MPI_Status status;
 	  if(data_recv[i] != -1)
-	    MPI_Recv(new_data+data_recv[i],data_length_recv[i],MPI_INT,i,42,comm,&status);
+	    MPI_Irecv(new_data+data_recv[i],data_length_recv[i],MPI_INT,i,42,comm,&recv_req[recv_idx++]);
 	}
     }
+    
+    MPI_Status *send_status = (MPI_Status *) malloc(send_count*sizeof(MPI_Status));
+    MPI_Status *recv_status = (MPI_Status *) malloc(recv_count*sizeof(MPI_Status));
+    MPI_Waitall(send_count,send_req,send_status);
+    MPI_Waitall(recv_count,recv_req,recv_status);
   }
   
   pair<int,int> createNewCommunicators(int start_pid, int start, int middle, int end, MPI_Comm comm, int &shizophrenicPID, MPI_Comm *left, MPI_Comm *right) {
