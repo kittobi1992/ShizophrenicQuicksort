@@ -4,6 +4,21 @@
 
 using namespace std;
 
+bool isSorted(int* data, int N) {
+  for(int i = 1; i < N; i++)
+    if(data[i-1] > data[i])
+      return false;
+  return true;
+}
+
+int countWrongIndicies(int* data, int N) {
+  int idx = 0;
+  for(int i = 1; i < N; i++)
+    if(data[i-1] > data[i])
+      idx++;
+  return idx;
+} 
+
 int main(int argc, char** argv) {
     srand (time (NULL));
   
@@ -38,16 +53,13 @@ int main(int argc, char** argv) {
     QuickSort<int> *qs = new QuickSort<int>(split_size,pdata);
     qs->quickSort(0,0,N, MPI_COMM_WORLD);
     int* d = qs->getData();
-    if(world_rank == 0) {
-      for(int i = 0; i < N; i++)
-	cout << data[i] << " ";
-      cout << endl;
-    }
+
     MPI_Gather(d,split_size,MPI_INT,data,split_size,MPI_INT,0,MPI_COMM_WORLD);
     if(world_rank == 0) {
-      for(int i = 0; i < N; i++)
-	cout << data[i] << " ";
-      cout << endl;
+      if(isSorted(data,N))
+	cout << "Array is in sorted order!" << endl;
+      else
+	cout << "Wrong Answer! (" << countWrongIndicies(data,N) << ")" << endl;
     }
     
     // Finalize the MPI environment.

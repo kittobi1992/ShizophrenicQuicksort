@@ -1,5 +1,6 @@
 #include <mpi.h>
 #include <bits/stdc++.h>
+#include <future>
 
 using namespace std;
 
@@ -14,13 +15,21 @@ unsigned long globalRandState;
    globalRandState = ((1664525L*globalRandState + 1013904223L) & 0xffffffffL))
 #define globalRandInt(n) ((globalRand() >> 10) % (n))
 
+//Macros
+#define V(X) cout << #X << "=" << X << endl
+#define W(X) #X << "=" << X
+
+void c(int i) {
+  cout << i << endl;
+}
+
 template<typename T>
 class QuickSort {
  
 public:
   QuickSort(int N, T *data) : N(N), data(data) { }
   
-  void quickSort(int start_pid, int start, int end, MPI_Comm comm) {
+  void quickSort(int start_pid, int start, int end, MPI_Comm comm, bool less_equal = true) {
     int world_size, rank;
     MPI_Comm_size(comm,&world_size);
     MPI_Comm_rank(comm, &rank);
@@ -38,12 +47,22 @@ public:
       startIdx.second = 0;
     if(rank != endIdx.first)
       endIdx.second = N-1;
+        
     int pivot = getPivot(rank,world_size,startIdx.second,endIdx.second+1,comm);
     for(int i = startIdx.second; i < endIdx.second+1; i++) {
-      if(data[i] <= pivot) {
-	swap(data[i],data[startIdx.second+largeIdx++]);
+      if(less_equal) {
+	if(data[i] <= pivot) {
+	  swap(data[i],data[startIdx.second+largeIdx++]);
+	}
+      } else {
+	if(data[i] < pivot) {
+	  swap(data[i],data[startIdx.second+largeIdx++]);
+	}	
       }
     }
+
+    MPI_Barrier(comm);
+    
     int prefix_sum;
     MPI_Scan(&largeIdx,&prefix_sum,1,MPI_INT,MPI_SUM,comm);
     prefix_sum -= largeIdx;
@@ -52,34 +71,56 @@ public:
       new_data[i] = 0;
     
     //printArray(N,rank,data);
- 
-    cout << start_pid+rank << " " << start << " " << end << endl;
     
     sendData(start,start_pid,prefix_sum,data+startIdx.second,new_data,largeIdx,comm);
     prefix_sum += largeIdx;
     int small_elements = prefix_sum;
     MPI_Bcast(&small_elements,1,MPI_INT,world_size-1,comm);
+    
+    if(small_elements == end-start) {
+      quickSort(start_pid,start,end,comm,false);
+      return;
+    } else if(small_elements == 0 && !less_equal)
+      return;
+    
     int large_elements = (endIdx.second-startIdx.second+1)-largeIdx;
     MPI_Scan(&large_elements,&prefix_sum,1,MPI_INT,MPI_SUM,comm);
     prefix_sum -= large_elements;
     sendData(start+small_elements,start_pid,prefix_sum,data+startIdx.second+largeIdx,new_data,large_elements,comm);
     
-    cout << start_pid+rank << " " << start << " " << end << endl;
     
     for(int i = startIdx.second; i < endIdx.second+1; i++)
       data[i] = new_data[i];
     
+    /*if(rank == 0) {
+      V(pivot);
+      V(small_elements);
+      V(start);
+      V(end);
+    }*/
+    
     //printArray(N,start_pid+rank,data);
     
     MPI_Comm left, right;
-    if(small_elements == end-start)
-      return;
-    pair<int,int> new_start_pid = createNewCommunicators(start_pid,start,start+small_elements,end,comm,&left,&right);
+    int shizophrenicPID = -1;
+    pair<int,int> new_start_pid = createNewCommunicators(start_pid,start,start+small_elements,end,comm,shizophrenicPID,&left,&right);
+    future<void> fut1,fut2;
     if(MPI_COMM_NULL != left)
-      quickSort(new_start_pid.first+start_pid,start,start+small_elements,left);
+      fut1 = async(launch::async,&QuickSort::quickSort,this,new_start_pid.first+start_pid,start,start+small_elements,left,true);
+    else
+      fut1 = async([]() {return;});
 
+    if(shizophrenicPID == rank)
+      fut1.get();
+    
     if(MPI_COMM_NULL != right)
-      quickSort(new_start_pid.second+start_pid,start+small_elements,end,right);
+      fut2 = async(launch::async,&QuickSort::quickSort,this,new_start_pid.second+start_pid,start+small_elements,end,right,true);
+    else
+      fut2 = async([]() {return;});
+    
+    if(shizophrenicPID == -1)
+      fut1.get();
+    fut2.get();
   }
   
    T* getData() {
@@ -130,26 +171,35 @@ private:
 	data_send[i] = -1;
     } 
     
+    MPI_Barrier(comm);
+    
     MPI_Alltoall(data_send,1,MPI_INT,data_recv,1,MPI_INT,comm);
     MPI_Alltoall(data_length_send,1,MPI_INT,data_length_recv,1,MPI_INT,comm);
-    
-    //Buggy bug bug
-    int idx = 0;
+   
+
     for(int i = 0; i < world_size; i++) {
-	if(data_send[i] != -1) {
-	  MPI_Send(data+idx,data_length_send[i],MPI_INT,i,42,comm);
-	  idx += data_length_send[i];
+	if(rank == i) {
+	  int idx = 0;
+	  for(int j = 0; j < world_size; j++) {
+	    if(data_send[j] != -1 && j != rank) {
+	      MPI_Send(data+idx,data_length_send[j],MPI_INT,j,42,comm);
+	      idx += data_length_send[j];
+	    } else if(rank == j && data_send[j] != -1) {
+	      for(int k = 0; k < data_length_send[rank]; k++)
+		*(new_data+(data_recv[rank]+k)) = data[k+idx];
+	      idx += data_length_send[rank];
+	    }
+	  }
+	}
+	else {
+	  MPI_Status status;
+	  if(data_recv[i] != -1)
+	    MPI_Recv(new_data+data_recv[i],data_length_recv[i],MPI_INT,i,42,comm,&status);
 	}
     }
-    for(int i = 0; i < world_size; i++) {
-	MPI_Status status;
-	if(data_recv[i] != -1)
-	  MPI_Recv(new_data+data_recv[i],data_length_recv[i],MPI_INT,i,42,comm,&status);
-    }
-    
   }
   
-  pair<int,int> createNewCommunicators(int start_pid, int start, int middle, int end, MPI_Comm comm, MPI_Comm *left, MPI_Comm *right) {
+  pair<int,int> createNewCommunicators(int start_pid, int start, int middle, int end, MPI_Comm comm, int &shizophrenicPID, MPI_Comm *left, MPI_Comm *right) {
       MPI_Group group;
       MPI_Comm_group(comm,&group);
       pair<int,int> startIdx = getProcessIdx(start_pid,start), middleIdx1 = getProcessIdx(start_pid,middle-1), 
@@ -161,6 +211,8 @@ private:
 	ranks_left[i] = startIdx.first+i;
       for(int i = 0; i < size_right; i++)
 	ranks_right[i] = middleIdx2.first+i;
+      if(middleIdx1.first == middleIdx2.first)
+	shizophrenicPID = middleIdx1.first;
       MPI_Group group_left, group_right;
       MPI_Group_incl(group,size_left,ranks_left,&group_left);
       MPI_Group_incl(group,size_right,ranks_right,&group_right);
