@@ -66,27 +66,24 @@ int main(int argc, char** argv) {
     double d_start = start_time.count();
     double d_end = end_time.count();
     double min_start, max_end;
-    
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Reduce(&d_start,&min_start,1,MPI_DOUBLE,MPI_MIN,0,MPI_COMM_WORLD);
     MPI_Reduce(&d_end,&max_end,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
     
-    
-    if(world_rank == 0) {
-      cout << "ShizophrenicQuicksort runs " << (max_end-min_start) << "s" << endl;
-    }
-    
+    double *runningTimes = (double *)malloc(world_size*sizeof(double));
+    double runningTime = (d_end-d_start);
+    MPI_Gather(&runningTime,1,MPI_DOUBLE,runningTimes,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
     
     MPI_Gather(d,split_size,MPI_INT,data,split_size,MPI_INT,0,MPI_COMM_WORLD);
     if(world_rank == 0) {
-      if(isSorted(data,N))
-	cout << "Array is in sorted order!" << endl;
-      else {
-	/*for(int i = 0; i < N; i++)
-	  cout << data[i] << " ";
-	cout << endl;*/
-	cout << "Wrong Answer! (" << countWrongIndicies(data,N) << ")" << endl;
-      }
+      bool isSort = isSorted;
+      cout << "RESULT "
+	   << "algo=ShizophrenicQuicksort "
+	   << "time=" << (max_end-min_start) << " "
+	   << "isSorted=" << isSort << " ";
+      for(int i = 0; i < world_size; i++)
+	cout << "timePE" << i << "=" << runningTimes[i] << " ";
+      cout << endl;
     }
     
     

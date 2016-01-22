@@ -1,6 +1,5 @@
 #include <mpi.h>
 #include <bits/stdc++.h>
-#include <future>
 
 using namespace std;
 
@@ -21,9 +20,14 @@ struct QSInterval {
     
   }
   
-  void toString() {
+  void toString(bool shizophren) {
     cout << "GlobalRank=" << (start_pid+rank) << ", " << W(global_start) << ", " << W(global_end) << ", "
-	 << W(start) << ", " << W(end) << ", " << W(p) << ", " << W(rank) << endl;
+	 << W(start) << ", " << W(end) << ", " << W(p) << ", " << W(rank) << ", "
+	 << W(pivot) << ", " << W(shizophren) << endl;
+  }
+  
+  void sortData(int *data) {
+    sort(data+start,data+end+1);    
   }
   
   
@@ -48,12 +52,41 @@ struct QSInterval {
       large_size = presum_large;
     }
     MPI_Bcast(&small_size,1,MPI_INT,p-1,comm); 
-    MPI_Bcast(&small_size,1,MPI_INT,p-1,comm); 
+    MPI_Bcast(&large_size,1,MPI_INT,p-1,comm); 
     presum_small -= small_elements; presum_large -= large_elements;
   }
   
+  bool allDataAreEqualOnInterval(int *data) {
+      if(small_size == (global_end-global_start)) {
+	int i = end+1;
+	while(--i > start && data[i] == data[start]) {}
+	bool ivalEqual = (i == start); bool allEqual;
+	MPI_Reduce(&ivalEqual,&allEqual,1,MPI_C_BOOL,MPI_LAND,0,comm);
+	MPI_Bcast(&allEqual,1,MPI_C_BOOL,0,comm);
+	if(allEqual) {
+	  int d = data[start];
+	  int min_d, max_d;
+	  MPI_Reduce(&d,&min_d,1,MPI_INT,MPI_MIN,0,comm);
+	  MPI_Reduce(&d,&max_d,1,MPI_INT,MPI_MAX,0,comm);
+	  if(rank == 0) {
+	    allEqual = (min_d == max_d);
+	    MPI_Bcast(&allEqual,1,MPI_C_BOOL,0,comm);
+	  }
+	  else
+	    MPI_Bcast(&allEqual,1,MPI_C_BOOL,0,comm);
+	  if(allEqual) {
+	    return true;
+	  }
+	}
+	else
+	  return false;
+      }
+      else
+	return false;
+  }
+  
   int start_pid, global_start,global_end, start, end;
-  int N, p, rank;
+  int N, p, rank, pivot;
   int presum_small, presum_large, small_elements, large_elements, small_size, large_size;
   MPI_Comm comm;
   bool less_equal;
@@ -69,59 +102,57 @@ public:
       buffer[i] = 0;
   }
   
-  void quickSort(QSInterval ival) {
+  void quickSort(QSInterval &ival) {
     ival.setDataSize(N);
-    //ival.toString();
 
     if(ival.p == 1) {
-      sort(data+ival.start,data+ival.end+1);
+      ival.sortData(data);
       return;
     }
-        
+
     int bound = partition_data(ival);
     
     ival.calculateExchangeData(bound);
     
-    if(ival.small_size == ival.global_end-ival.global_start) {
-      ival.less_equal = false;
-      quickSort(ival);
+    if(ival.allDataAreEqualOnInterval(data)) {
       return;
-    } else if(ival.small_size == 0 && !ival.less_equal)
-      return;
+    }
+    
+        
+    //ival.toString(false);
+        
     
     //Exchange small elements (all elements <= pivot)
-    exchangeData(ival,ival.global_start,bound,ival.presum_small,data+ival.start,buffer);
+    exchangeData(ival,ival.global_start,
+		 ival.small_elements,
+		 ival.presum_small,
+		 data+ival.start);
     //Exchange large elements (all elements > pivot)
-    exchangeData(ival,ival.global_start+ival.small_size,ival.large_elements,ival.presum_large,data+ival.start+ival.small_elements,buffer);
-    
+    exchangeData(ival,ival.global_start+ival.small_size,
+		 ival.large_elements,
+		 ival.presum_large,
+		 data+ival.start+ival.small_elements);
     
     for(int i = ival.start; i < ival.end+1; i++)
       data[i] = buffer[i];
     
+    
     MPI_Comm left, right;
-    int shizophrenicPID = -1;
-    pair<int,int> new_start_pid = createNewCommunicators(ival,ival.global_start+ival.small_size,shizophrenicPID,&left,&right);
-    future<void> fut1,fut2;
-    if(MPI_COMM_NULL != left) {
+    pair<int,int> new_start_pid = createNewCommunicators(ival,ival.global_start+ival.small_size,&left,&right);
+    
+    if(MPI_COMM_NULL != left && MPI_COMM_NULL != right) {
       QSInterval left_ival(new_start_pid.first+ival.start_pid,ival.global_start,ival.global_start+ival.small_size,left);
-      fut1 = async(launch::async,&QuickSort::quickSort,this,left_ival); 
-    }
-    else
-      fut1 = async([]() {return;});
-
-    if(shizophrenicPID == ival.rank)
-      fut1.get();
-    
-    if(MPI_COMM_NULL != right) {
       QSInterval right_ival(new_start_pid.second+ival.start_pid,ival.global_start+ival.small_size,ival.global_end,right);
-      fut2 = async(launch::async,&QuickSort::quickSort,this,right_ival);
+      shizophrenicQuickSort(left_ival,right_ival);
+    } else if(MPI_COMM_NULL != left) {
+      QSInterval left_ival(new_start_pid.first+ival.start_pid,ival.global_start,ival.global_start+ival.small_size,left);
+      quickSort(left_ival);
+    } else if(MPI_COMM_NULL != right) {
+      QSInterval right_ival(new_start_pid.second+ival.start_pid,ival.global_start+ival.small_size,ival.global_end,right);
+      quickSort(right_ival);
     }
-    else
-      fut2 = async([]() {return;});
-    
-    if(shizophrenicPID == -1)
-      fut1.get();
-    fut2.get();
+
+
   }
   
    T* getData() {
@@ -130,6 +161,148 @@ public:
   
 private:
   
+
+  void shizophrenicQuickSort(QSInterval &left_ival, QSInterval &right_ival) {
+     left_ival.setDataSize(N);
+     right_ival.setDataSize(N);
+
+    if(left_ival.p == 1) {
+      left_ival.sortData(data);
+      if(right_ival.p > 1) {
+	quickSort(right_ival);
+	return;
+      } else {
+	right_ival.sortData(data);
+	return;
+      }
+    }
+    if(right_ival.p == 1) {
+      right_ival.sortData(data);
+      quickSort(left_ival);
+      return;
+    }
+    
+        
+    int bound1 = partition_data(left_ival);
+    int bound2 = partition_data(right_ival);
+
+    left_ival.calculateExchangeData(bound1);
+    right_ival.calculateExchangeData(bound2);
+    
+    bool dataEqualLeft = left_ival.allDataAreEqualOnInterval(data);
+    bool dataEqualRight = right_ival.allDataAreEqualOnInterval(data);
+    
+    //left_ival.toString(true);
+    //right_ival.toString(true);
+    
+    
+    //Exchange small elements for left Interval (all elements <= pivot)
+    if(!dataEqualLeft)
+      exchangeData(left_ival, left_ival.global_start, 
+		  left_ival.small_elements,
+		  left_ival.presum_small,
+		  data+left_ival.start);
+    //Exchange small elements for right Interval (all elements <= pivot)
+    if(!dataEqualRight)
+      exchangeData(right_ival, right_ival.global_start, 
+		  right_ival.small_elements,
+		  right_ival.presum_small,
+		  data+right_ival.start);
+    //Exchange large elements for left Interval (all elements > pivot)
+    if(!dataEqualLeft)
+      exchangeData(left_ival,left_ival.global_start+left_ival.small_size, 
+		  left_ival.large_elements,
+		  left_ival.presum_large,
+		  data+left_ival.start+left_ival.small_elements);
+    //Exchange large elements (all elements > pivot)
+    if(!dataEqualRight)
+      exchangeData(right_ival,right_ival.global_start+right_ival.small_size, 
+		  right_ival.large_elements,
+		  right_ival.presum_large,
+		  data+right_ival.start+right_ival.small_elements);
+    
+    if(!dataEqualLeft)
+      for(int i = left_ival.start; i < left_ival.end+1; i++)
+	data[i] = buffer[i];
+    if(!dataEqualRight)
+      for(int i = right_ival.start; i < right_ival.end+1; i++)
+	data[i] = buffer[i];
+      
+    MPI_Comm left1, right1, left2, right2;
+    pair<int,int> new_start_pid1, new_start_pid2;
+    if(!dataEqualLeft)
+      new_start_pid1 = createNewCommunicators(left_ival,
+					      left_ival.global_start + left_ival.small_size,
+					      &left1,&right1);
+    if(!dataEqualRight)
+      new_start_pid2 = createNewCommunicators(right_ival,
+					      right_ival.global_start + right_ival.small_size,
+					      &left2,&right2);
+      
+      
+    if(dataEqualLeft && dataEqualRight) {
+      return;
+    } else if(dataEqualLeft) {
+      if(left2 != MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
+	QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+	QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+	shizophrenicQuickSort(left_ival2,right_ival2);
+      } else if(left2 == MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
+	QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+	quickSort(right_ival2);
+      } else if(left2 != MPI_COMM_NULL && right2 == MPI_COMM_NULL) {
+	QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+	quickSort(left_ival2);
+      }
+      return;
+    } else if(dataEqualRight) {
+      if(left1 != MPI_COMM_NULL && right1 != MPI_COMM_NULL) {
+	QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+	QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+	shizophrenicQuickSort(left_ival1,right_ival1);
+      } else if(left1 == MPI_COMM_NULL && right1 != MPI_COMM_NULL) {
+	QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+	quickSort(right_ival1);
+      } else if(left1 != MPI_COMM_NULL && right1 == MPI_COMM_NULL) {
+	QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+	quickSort(left_ival1);
+      }  
+      return;
+    }
+
+     //cout << (left1 != MPI_COMM_NULL) << " " << (right1 != MPI_COMM_NULL) << " " <<  (left2 != MPI_COMM_NULL) << " " << (right2 != MPI_COMM_NULL) << endl;
+    
+    if(left1 != MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
+      QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+      shizophrenicQuickSort(right_ival1,left_ival2);
+      shizophrenicQuickSort(left_ival1,right_ival2);
+      return;
+    } else if(left1 == MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
+      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+      quickSort(left_ival2);
+      shizophrenicQuickSort(right_ival1,right_ival2);
+      return;
+    } else if(left1 != MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 == MPI_COMM_NULL) {
+      QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      quickSort(right_ival1);
+      shizophrenicQuickSort(left_ival1,left_ival2);
+      return;
+    } else if(left1 == MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 == MPI_COMM_NULL) {
+      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      shizophrenicQuickSort(right_ival1,left_ival2);
+      return;
+    }
+
+  }
+  
   int getPivot(QSInterval &ival) {
     int c = 5;
     int pivot = 0;
@@ -137,13 +310,13 @@ private:
       pivot += data[ival.start + rand() % (ival.end+1-ival.start)];
     }
     pivot /= c;
-    int pivotPE;
+    int global_pivot;
+    MPI_Reduce(&pivot,&global_pivot,1,MPI_INT,MPI_SUM,0,ival.comm);
     if(ival.rank == 0)
-      pivotPE = rand() % ival.p;
-    MPI_Request *req; MPI_Status *status;
-    MPI_Bcast(&pivotPE,1,MPI_INT,0,ival.comm);
-    MPI_Bcast(&pivot,1,MPI_INT,pivotPE,ival.comm);
-    return pivot;
+      global_pivot /= ival.p;
+    MPI_Bcast(&global_pivot,1,MPI_INT,0,ival.comm);
+    ival.pivot = global_pivot;
+    return global_pivot;
   }
   
   int partition_data(QSInterval &ival) {
@@ -163,7 +336,7 @@ private:
     return bound;
   }
   
-  void exchangeData(QSInterval &ival, int start_idx, int length, int prefix_sum, int *data, int *buffer) {
+  void exchangeData(QSInterval &ival, int start_idx, int length, int prefix_sum, int *data) {
     
     pair<int,int> process_idx = getProcessIdx(ival.start_pid,start_idx+prefix_sum);
     int *data_send = (int *) malloc(ival.p*sizeof(int));
@@ -229,7 +402,7 @@ private:
     MPI_Waitall(recv_count,recv_req,recv_status);
   }
   
-  pair<int,int> createNewCommunicators(QSInterval &ival, int middle, int &shizophrenicPID, MPI_Comm *left, MPI_Comm *right) {
+  pair<int,int> createNewCommunicators(QSInterval &ival, int middle, MPI_Comm *left, MPI_Comm *right) {
       MPI_Group group;
       MPI_Comm_group(ival.comm,&group);
       pair<int,int> startIdx = getProcessIdx(ival.start_pid,ival.global_start), middleIdx1 = getProcessIdx(ival.start_pid,middle-1), 
@@ -241,8 +414,6 @@ private:
 	ranks_left[i] = startIdx.first+i;
       for(int i = 0; i < size_right; i++)
 	ranks_right[i] = middleIdx2.first+i;
-      if(middleIdx1.first == middleIdx2.first)
-	shizophrenicPID = middleIdx1.first;
       MPI_Group group_left, group_right;
       MPI_Group_incl(group,size_left,ranks_left,&group_left);
       MPI_Group_incl(group,size_right,ranks_right,&group_right);
