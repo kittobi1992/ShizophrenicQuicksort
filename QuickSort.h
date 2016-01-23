@@ -310,6 +310,7 @@ private:
   T getPivot(QSInterval<T> &ival) {
     int c = 5;
     T pivot = 0;
+    //Bug: Overflow!!!
     for(int i = 0; i < c; i++) {
       pivot += data[ival.start + rand() % (ival.end+1-ival.start)];
     }
