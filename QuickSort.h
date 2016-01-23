@@ -1,5 +1,6 @@
 #include <mpi.h>
 #include <bits/stdc++.h>
+#include "GenericDatatype.h"
 
 using namespace std;
 
@@ -7,6 +8,7 @@ using namespace std;
 #define V(X) cout << #X << "=" << X << endl
 #define W(X) #X << "=" << X
 
+template<typename T>
 struct QSInterval {
   
   QSInterval(int start_pid, int global_start, int global_end, MPI_Comm comm, bool less_equal = true) :
@@ -26,7 +28,7 @@ struct QSInterval {
 	 << W(pivot) << ", " << W(shizophren) << endl;
   }
   
-  void sortData(int *data) {
+  void sortData(T *data) {
     sort(data+start,data+end+1);    
   }
   
@@ -56,7 +58,7 @@ struct QSInterval {
     presum_small -= small_elements; presum_large -= large_elements;
   }
   
-  bool allDataAreEqualOnInterval(int *data) {
+  bool allDataAreEqualOnInterval(T *data) {
       if(small_size == (global_end-global_start)) {
 	int i = end+1;
 	while(--i > start && data[i] == data[start]) {}
@@ -64,10 +66,10 @@ struct QSInterval {
 	MPI_Reduce(&ivalEqual,&allEqual,1,MPI_C_BOOL,MPI_LAND,0,comm);
 	MPI_Bcast(&allEqual,1,MPI_C_BOOL,0,comm);
 	if(allEqual) {
-	  int d = data[start];
-	  int min_d, max_d;
-	  MPI_Reduce(&d,&min_d,1,MPI_INT,MPI_MIN,0,comm);
-	  MPI_Reduce(&d,&max_d,1,MPI_INT,MPI_MAX,0,comm);
+	  T d = data[start];
+	  T min_d, max_d;
+	  MPI_Reduce(&d,&min_d,1,GenericDatatype<T>::getMPIDatatype(),MPI_MIN,0,comm);
+	  MPI_Reduce(&d,&max_d,1,GenericDatatype<T>::getMPIDatatype(),MPI_MAX,0,comm);
 	  if(rank == 0) {
 	    allEqual = (min_d == max_d);
 	    MPI_Bcast(&allEqual,1,MPI_C_BOOL,0,comm);
@@ -86,7 +88,8 @@ struct QSInterval {
   }
   
   int start_pid, global_start,global_end, start, end;
-  int N, p, rank, pivot;
+  int N, p, rank;
+  T pivot;
   int presum_small, presum_large, small_elements, large_elements, small_size, large_size;
   MPI_Comm comm;
   bool less_equal;
@@ -97,12 +100,13 @@ class QuickSort {
  
 public:
   QuickSort(int N, T *data) : N(N), data(data) {
-    buffer = (int *) malloc(N*sizeof(int));
+    buffer = (T *) malloc(N*sizeof(T));
     for(int i = 0; i < N; i++)
       buffer[i] = 0;
+    mpi_type = GenericDatatype<T>::getMPIDatatype();
   }
   
-  void quickSort(QSInterval &ival) {
+  void quickSort(QSInterval<T> &ival) {
     ival.setDataSize(N);
 
     if(ival.p == 1) {
@@ -141,14 +145,14 @@ public:
     pair<int,int> new_start_pid = createNewCommunicators(ival,ival.global_start+ival.small_size,&left,&right);
     
     if(MPI_COMM_NULL != left && MPI_COMM_NULL != right) {
-      QSInterval left_ival(new_start_pid.first+ival.start_pid,ival.global_start,ival.global_start+ival.small_size,left);
-      QSInterval right_ival(new_start_pid.second+ival.start_pid,ival.global_start+ival.small_size,ival.global_end,right);
+      QSInterval<T> left_ival(new_start_pid.first+ival.start_pid,ival.global_start,ival.global_start+ival.small_size,left);
+      QSInterval<T> right_ival(new_start_pid.second+ival.start_pid,ival.global_start+ival.small_size,ival.global_end,right);
       shizophrenicQuickSort(left_ival,right_ival);
     } else if(MPI_COMM_NULL != left) {
-      QSInterval left_ival(new_start_pid.first+ival.start_pid,ival.global_start,ival.global_start+ival.small_size,left);
+      QSInterval<T> left_ival(new_start_pid.first+ival.start_pid,ival.global_start,ival.global_start+ival.small_size,left);
       quickSort(left_ival);
     } else if(MPI_COMM_NULL != right) {
-      QSInterval right_ival(new_start_pid.second+ival.start_pid,ival.global_start+ival.small_size,ival.global_end,right);
+      QSInterval<T> right_ival(new_start_pid.second+ival.start_pid,ival.global_start+ival.small_size,ival.global_end,right);
       quickSort(right_ival);
     }
 
@@ -162,7 +166,7 @@ public:
 private:
   
 
-  void shizophrenicQuickSort(QSInterval &left_ival, QSInterval &right_ival) {
+  void shizophrenicQuickSort(QSInterval<T> &left_ival, QSInterval<T> &right_ival) {
      left_ival.setDataSize(N);
      right_ival.setDataSize(N);
 
@@ -244,27 +248,27 @@ private:
       return;
     } else if(dataEqualLeft) {
       if(left2 != MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
-	QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
-	QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+	QSInterval<T> left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+	QSInterval<T> right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
 	shizophrenicQuickSort(left_ival2,right_ival2);
       } else if(left2 == MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
-	QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+	QSInterval<T> right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
 	quickSort(right_ival2);
       } else if(left2 != MPI_COMM_NULL && right2 == MPI_COMM_NULL) {
-	QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+	QSInterval<T> left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
 	quickSort(left_ival2);
       }
       return;
     } else if(dataEqualRight) {
       if(left1 != MPI_COMM_NULL && right1 != MPI_COMM_NULL) {
-	QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
-	QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+	QSInterval<T> left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+	QSInterval<T> right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
 	shizophrenicQuickSort(left_ival1,right_ival1);
       } else if(left1 == MPI_COMM_NULL && right1 != MPI_COMM_NULL) {
-	QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+	QSInterval<T> right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
 	quickSort(right_ival1);
       } else if(left1 != MPI_COMM_NULL && right1 == MPI_COMM_NULL) {
-	QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+	QSInterval<T> left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
 	quickSort(left_ival1);
       }  
       return;
@@ -273,55 +277,55 @@ private:
      //cout << (left1 != MPI_COMM_NULL) << " " << (right1 != MPI_COMM_NULL) << " " <<  (left2 != MPI_COMM_NULL) << " " << (right2 != MPI_COMM_NULL) << endl;
     
     if(left1 != MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
-      QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
-      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
-      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
-      QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+      QSInterval<T> left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+      QSInterval<T> right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval<T> left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      QSInterval<T> right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
       shizophrenicQuickSort(right_ival1,left_ival2);
       shizophrenicQuickSort(left_ival1,right_ival2);
       return;
     } else if(left1 == MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 != MPI_COMM_NULL) {
-      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
-      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
-      QSInterval right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
+      QSInterval<T> right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval<T> left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      QSInterval<T> right_ival2(new_start_pid2.second+right_ival.start_pid,right_ival.global_start+right_ival.small_size,right_ival.global_end,right2);
       quickSort(left_ival2);
       shizophrenicQuickSort(right_ival1,right_ival2);
       return;
     } else if(left1 != MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 == MPI_COMM_NULL) {
-      QSInterval left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
-      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
-      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      QSInterval<T> left_ival1(new_start_pid1.first+left_ival.start_pid,left_ival.global_start,left_ival.global_start+left_ival.small_size,left1);
+      QSInterval<T> right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval<T> left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
       quickSort(right_ival1);
       shizophrenicQuickSort(left_ival1,left_ival2);
       return;
     } else if(left1 == MPI_COMM_NULL && right1 != MPI_COMM_NULL && left2 != MPI_COMM_NULL && right2 == MPI_COMM_NULL) {
-      QSInterval right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
-      QSInterval left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
+      QSInterval<T> right_ival1(new_start_pid1.second+left_ival.start_pid,left_ival.global_start+left_ival.small_size,left_ival.global_end,right1);
+      QSInterval<T> left_ival2(new_start_pid2.first+right_ival.start_pid,right_ival.global_start,right_ival.global_start+right_ival.small_size,left2);
       shizophrenicQuickSort(right_ival1,left_ival2);
       return;
     }
 
   }
   
-  int getPivot(QSInterval &ival) {
+  T getPivot(QSInterval<T> &ival) {
     int c = 5;
-    int pivot = 0;
+    T pivot = 0;
     for(int i = 0; i < c; i++) {
       pivot += data[ival.start + rand() % (ival.end+1-ival.start)];
     }
     pivot /= c;
-    int global_pivot;
-    MPI_Reduce(&pivot,&global_pivot,1,MPI_INT,MPI_SUM,0,ival.comm);
+    T global_pivot;
+    MPI_Reduce(&pivot,&global_pivot,1,mpi_type,MPI_SUM,0,ival.comm);
     if(ival.rank == 0)
       global_pivot /= ival.p;
-    MPI_Bcast(&global_pivot,1,MPI_INT,0,ival.comm);
+    MPI_Bcast(&global_pivot,1,mpi_type,0,ival.comm);
     ival.pivot = global_pivot;
     return global_pivot;
   }
   
-  int partition_data(QSInterval &ival) {
+  int partition_data(QSInterval<T> &ival) {
     int bound = 0;
-    int pivot = getPivot(ival);
+    T pivot = getPivot(ival);
     for(int i = ival.start; i < ival.end+1; i++) {
       if(ival.less_equal) {
 	if(data[i] <= pivot) {
@@ -336,7 +340,7 @@ private:
     return bound;
   }
   
-  void exchangeData(QSInterval &ival, int start_idx, int length, int prefix_sum, int *data) {
+  void exchangeData(QSInterval<T> &ival, int start_idx, int length, int prefix_sum, T *data) {
     
     pair<int,int> process_idx = getProcessIdx(ival.start_pid,start_idx+prefix_sum);
     int *data_send = (int *) malloc(ival.p*sizeof(int));
@@ -380,7 +384,7 @@ private:
 	  int idx = 0;
 	  for(int j = 0; j < ival.p; j++) {
 	    if(data_send[j] != -1 && j != ival.rank) {
-	      MPI_Isend(data+idx,data_length_send[j],MPI_INT,j,42,ival.comm,&send_req[send_idx++]);
+	      MPI_Isend(data+idx,data_length_send[j],mpi_type,j,42,ival.comm,&send_req[send_idx++]);
 	      idx += data_length_send[j];
 	    } else if(ival.rank == j && data_send[j] != -1) {
 	      for(int k = 0; k < data_length_send[ival.rank]; k++)
@@ -392,7 +396,7 @@ private:
 	else {
 	  MPI_Status status;
 	  if(data_recv[i] != -1)
-	    MPI_Irecv(buffer+data_recv[i],data_length_recv[i],MPI_INT,i,42,ival.comm,&recv_req[recv_idx++]);
+	    MPI_Irecv(buffer+data_recv[i],data_length_recv[i],mpi_type,i,42,ival.comm,&recv_req[recv_idx++]);
 	}
     }
     
@@ -402,7 +406,7 @@ private:
     MPI_Waitall(recv_count,recv_req,recv_status);
   }
   
-  pair<int,int> createNewCommunicators(QSInterval &ival, int middle, MPI_Comm *left, MPI_Comm *right) {
+  pair<int,int> createNewCommunicators(QSInterval<T> &ival, int middle, MPI_Comm *left, MPI_Comm *right) {
       MPI_Group group;
       MPI_Comm_group(ival.comm,&group);
       pair<int,int> startIdx = getProcessIdx(ival.start_pid,ival.global_start), middleIdx1 = getProcessIdx(ival.start_pid,middle-1), 
@@ -422,7 +426,7 @@ private:
       return make_pair(startIdx.first,middleIdx2.first);
   }
   
-  void printArray(int N, int rank, int *array) {
+  void printArray(int N, int rank, T *array) {
     for(int i = 0; i < N; i++)
       cout << array[i] << "("<<rank<<") ";
     cout << endl;
@@ -435,5 +439,6 @@ private:
   
   int N;
   T *data, *buffer;
+  MPI_Datatype mpi_type;
   
 };

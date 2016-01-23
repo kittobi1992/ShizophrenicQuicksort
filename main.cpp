@@ -6,14 +6,18 @@
 using namespace std;
 using HighResClockTimepoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
 
-bool isSorted(int* data, int N) {
+typedef int DATATYPE;
+
+MPI_Datatype mpi_type = GenericDatatype<DATATYPE>::getMPIDatatype();
+
+bool isSorted(DATATYPE* data, int N) {
   for(int i = 1; i < N; i++)
     if(data[i-1] > data[i])
       return false;
   return true;
 }
 
-int countWrongIndicies(int* data, int N) {
+int countWrongIndicies(DATATYPE* data, int N) {
   int idx = 0;
   for(int i = 1; i < N; i++)
     if(data[i-1] > data[i])
@@ -36,30 +40,31 @@ int main(int argc, char** argv) {
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     
-    int N, split_size, *data, *pdata; 
+    int N, split_size;
+    DATATYPE *data, *pdata; 
     if(world_rank == 0) {
       cin >> N;
       split_size = ceil(static_cast<double>(N)/world_size);
-      data = (int *) malloc(split_size*world_size*sizeof(int));
+      data = (DATATYPE *) malloc(split_size*world_size*sizeof(DATATYPE));
       for(int i = 0; i < N; i++) {
 	cin >> data[i];
       }
       for(int i = N; i < split_size*world_size; i++)
-	data[i] = INT_MAX;
+	data[i] = numeric_limits<DATATYPE>::max();
     }
     
     MPI_Bcast(&N,1,MPI_INT,0,MPI_COMM_WORLD);
     split_size = ceil(static_cast<double>(N)/world_size);
-    pdata = (int *) malloc(split_size*sizeof(int));
-    MPI_Scatter(data,split_size,MPI_INT,pdata,split_size,MPI_INT,0,MPI_COMM_WORLD);
+    pdata = (DATATYPE *) malloc(split_size*sizeof(DATATYPE));
+    MPI_Scatter(data,split_size,mpi_type,pdata,split_size,mpi_type,0,MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
     
-    QuickSort<int> *qs = new QuickSort<int>(split_size,pdata);
-    QSInterval ival(0,0,N,MPI_COMM_WORLD);
+    QuickSort<DATATYPE> *qs = new QuickSort<DATATYPE>(split_size,pdata);
+    QSInterval<DATATYPE> ival(0,0,N,MPI_COMM_WORLD);
     HighResClockTimepoint start = std::chrono::high_resolution_clock::now();
     qs->quickSort(ival);
     HighResClockTimepoint end = std::chrono::high_resolution_clock::now();
-    int* d = qs->getData();
+    DATATYPE* d = qs->getData();
 
     std::chrono::duration<double> start_time = start.time_since_epoch();
     std::chrono::duration<double> end_time = end.time_since_epoch();
@@ -74,7 +79,7 @@ int main(int argc, char** argv) {
     double runningTime = (d_end-d_start);
     MPI_Gather(&runningTime,1,MPI_DOUBLE,runningTimes,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
     
-    MPI_Gather(d,split_size,MPI_INT,data,split_size,MPI_INT,0,MPI_COMM_WORLD);
+    MPI_Gather(d,split_size,mpi_type,data,split_size,mpi_type,0,MPI_COMM_WORLD);
     if(world_rank == 0) {
       bool isSort = isSorted;
       cout << "RESULT "
