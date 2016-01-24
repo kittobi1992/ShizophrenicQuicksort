@@ -108,6 +108,11 @@ public:
   
   void quickSort(QSInterval<T> &ival) {
     ival.setDataSize(N);
+    
+    if(ival.global_end-ival.global_start < 10) {
+      global_sort(ival);
+      return;
+    }
 
     if(ival.p == 1) {
       ival.sortData(data);
@@ -123,7 +128,7 @@ public:
     }
     
         
-    //ival.toString(false);
+    ival.toString(false);
         
     
     //Exchange small elements (all elements <= pivot)
@@ -186,6 +191,20 @@ private:
       return;
     }
     
+    if(left_ival.global_end-left_ival.global_start < 10) {
+      global_sort(left_ival); 
+      quickSort(right_ival);
+      return;
+    }
+    
+    if(right_ival.global_end-right_ival.global_start < 10) {
+      global_sort(right_ival); 
+      quickSort(left_ival);
+      return;
+    }
+    
+    
+    
         
     int bound1 = partition_data(left_ival);
     int bound2 = partition_data(right_ival);
@@ -196,8 +215,8 @@ private:
     bool dataEqualLeft = left_ival.allDataAreEqualOnInterval(data);
     bool dataEqualRight = right_ival.allDataAreEqualOnInterval(data);
     
-    //left_ival.toString(true);
-    //right_ival.toString(true);
+    left_ival.toString(true);
+    right_ival.toString(true);
     
     
     //Exchange small elements for left Interval (all elements <= pivot)
@@ -310,15 +329,12 @@ private:
   T getPivot(QSInterval<T> &ival) {
     int c = 5;
     T pivot = 0;
-    //Bug: Overflow!!!
     for(int i = 0; i < c; i++) {
-      pivot += data[ival.start + rand() % (ival.end+1-ival.start)];
+      pivot += (data[ival.start + rand() % (ival.end+1-ival.start)])/c;
     }
-    pivot /= c;
+    pivot /= ival.p;
     T global_pivot;
     MPI_Reduce(&pivot,&global_pivot,1,mpi_type,MPI_SUM,0,ival.comm);
-    if(ival.rank == 0)
-      global_pivot /= ival.p;
     MPI_Bcast(&global_pivot,1,mpi_type,0,ival.comm);
     ival.pivot = global_pivot;
     return global_pivot;
@@ -425,6 +441,35 @@ private:
       MPI_Comm_create(ival.comm,group_left,left);
       MPI_Comm_create(ival.comm,group_right,right);
       return make_pair(startIdx.first,middleIdx2.first);
+  }
+  
+  void global_sort(QSInterval<T> &ival) {
+    ival.sortData(data);
+    int idx = ival.global_start;
+    int local_idx = ival.start;
+    T *data_recv = (T *) malloc(ival.p*sizeof(T));
+    while(idx < ival.global_end) {
+      T d = (local_idx <= ival.end ? data[local_idx] : numeric_limits<T>::max());
+      pair<int,int> cur_proc = getProcessIdx(ival.start_pid,idx);
+      MPI_Gather(&d,1,mpi_type,data_recv,1,mpi_type,cur_proc.first,ival.comm);
+      int min_proc = -1;
+      if(ival.rank == cur_proc.first) {
+	T min_d = numeric_limits<T>::min();
+	for(int i = 0; i < ival.p; i++) {
+	  if(min_d < data_recv[i]) {
+	   min_d = data_recv[i];
+	   min_proc = i;
+	  }
+	}
+	buffer[cur_proc.second] = min_d;
+      }
+      MPI_Bcast(&min_proc,1,mpi_type,cur_proc.first,ival.comm);
+      idx++;
+      if(ival.rank == min_proc)
+	local_idx++;
+    }
+    for(int i = ival.start; i < ival.end+1; i++)
+      data[i] = buffer[i];
   }
   
   void printArray(int N, int rank, T *array) {

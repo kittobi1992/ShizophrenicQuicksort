@@ -27,8 +27,9 @@ int countWrongIndicies(DATATYPE* data, int N) {
 
 int main(int argc, char** argv) {
     ios::sync_with_stdio(false);
-    srand (time (NULL));
-  
+    int seed = atoi(argv[2]);
+    srand (seed);
+    
     // Initialize the MPI environment
     MPI_Init(NULL, NULL);
 
@@ -41,14 +42,20 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     
     int N, split_size;
+    string datatype;
     DATATYPE *data, *pdata; 
+    string benchmark = argv[1];
     if(world_rank == 0) {
-      cin >> N;
-      split_size = ceil(static_cast<double>(N)/world_size);
-      data = (DATATYPE *) malloc(split_size*world_size*sizeof(DATATYPE));
-      for(int i = 0; i < N; i++) {
-	cin >> data[i];
+      ifstream stream(benchmark);
+      if(stream.is_open()) {
+	stream >> N >> datatype;
+	split_size = ceil(static_cast<double>(N)/world_size);
+	data = (DATATYPE *) malloc(split_size*world_size*sizeof(DATATYPE));
+	for(int i = 0; i < N; i++) {
+	  stream >> data[i];
+	}
       }
+      stream.close();
       for(int i = N; i < split_size*world_size; i++)
 	data[i] = numeric_limits<DATATYPE>::max();
     }
@@ -83,9 +90,13 @@ int main(int argc, char** argv) {
     if(world_rank == 0) {
       bool isSort = isSorted;
       cout << "RESULT "
+	   << "benchmark=" << benchmark << " "
+	   << "P=" << world_size << " "
 	   << "algo=ShizophrenicQuicksort "
-	   << "time=" << (max_end-min_start) << " "
-	   << "isSorted=" << isSort << " ";
+	   << "seed=" << seed << " "
+	   << "datatype=" << datatype << " "
+	   << "isSorted=" << isSort << " "
+	   << "time=" << (max_end-min_start) << " ";
       for(int i = 0; i < world_size; i++)
 	cout << "timePE" << i << "=" << runningTimes[i] << " ";
       cout << endl;
