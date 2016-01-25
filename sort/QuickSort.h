@@ -128,7 +128,7 @@ public:
     }
     
         
-    ival.toString(false);
+    //ival.toString(false);
         
     
     //Exchange small elements (all elements <= pivot)
@@ -215,8 +215,8 @@ private:
     bool dataEqualLeft = left_ival.allDataAreEqualOnInterval(data);
     bool dataEqualRight = right_ival.allDataAreEqualOnInterval(data);
     
-    left_ival.toString(true);
-    right_ival.toString(true);
+    //left_ival.toString(true);
+    //right_ival.toString(true);
     
     
     //Exchange small elements for left Interval (all elements <= pivot)

@@ -5,9 +5,7 @@
 using namespace std;
 
 void executeQuickSort(int N, string datatype, MPI_Comm comm, int seed, string &benchmark, ifstream *stream = nullptr) {
-  int rank;
-  MPI_Comm_rank(comm,&rank);
-  SORT_TYPE type = SortingDatatype<void>::getSortType(datatype,rank);
+  SORT_TYPE type = SortingDatatype<void>::getSortType(datatype);
   switch(type) {
     case SORT_TYPE::Int: {
       QuickSortExecuter<int> *qs_exec = new QuickSortExecuter<int>(N,comm,stream);

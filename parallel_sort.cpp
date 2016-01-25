@@ -1,5 +1,7 @@
 #include <bits/stdc++.h>
 #include <chrono>
+#include <parallel/algorithm>
+
 
 using namespace std;
 using HighResClockTimepoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
@@ -22,11 +24,11 @@ int main(int argc, char** argv) {
       stream >> data[i];
     stream.close();
     HighResClockTimepoint start = std::chrono::high_resolution_clock::now();
-    sort(data,data+N);
+    __gnu_parallel::sort(data,data + N);
     HighResClockTimepoint end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_seconds = end - start;
     cout << "RESULT benchmark=" << benchmark
-	 << " algo=std_sort" 
+	 << " algo=GNU_Parallel" 
          << " runningTime=" << elapsed_seconds.count() 
 	 << " isSorted=" << isSorted(data,N) << endl;
 }
