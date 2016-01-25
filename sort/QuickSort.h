@@ -1,6 +1,6 @@
 #include <mpi.h>
 #include <bits/stdc++.h>
-#include "GenericDatatype.h"
+#include "../io/SortingDatatype.h"
 
 using namespace std;
 
@@ -68,8 +68,8 @@ struct QSInterval {
 	if(allEqual) {
 	  T d = data[start];
 	  T min_d, max_d;
-	  MPI_Reduce(&d,&min_d,1,GenericDatatype<T>::getMPIDatatype(),MPI_MIN,0,comm);
-	  MPI_Reduce(&d,&max_d,1,GenericDatatype<T>::getMPIDatatype(),MPI_MAX,0,comm);
+	  MPI_Reduce(&d,&min_d,1,SortingDatatype<T>::getMPIDatatype(),MPI_MIN,0,comm);
+	  MPI_Reduce(&d,&max_d,1,SortingDatatype<T>::getMPIDatatype(),MPI_MAX,0,comm);
 	  if(rank == 0) {
 	    allEqual = (min_d == max_d);
 	    MPI_Bcast(&allEqual,1,MPI_C_BOOL,0,comm);
@@ -103,7 +103,7 @@ public:
     buffer = (T *) malloc(N*sizeof(T));
     for(int i = 0; i < N; i++)
       buffer[i] = 0;
-    mpi_type = GenericDatatype<T>::getMPIDatatype();
+    mpi_type = SortingDatatype<T>::getMPIDatatype();
   }
   
   void quickSort(QSInterval<T> &ival) {
@@ -208,7 +208,7 @@ private:
         
     int bound1 = partition_data(left_ival);
     int bound2 = partition_data(right_ival);
-
+    
     left_ival.calculateExchangeData(bound1);
     right_ival.calculateExchangeData(bound2);
     
@@ -327,17 +327,17 @@ private:
   }
   
   T getPivot(QSInterval<T> &ival) {
-    int c = 5;
-    T pivot = 0;
+    double c = 5.0;
+    double pivot = 0.0;
     for(int i = 0; i < c; i++) {
-      pivot += (data[ival.start + rand() % (ival.end+1-ival.start)])/c;
+      pivot += static_cast<double>((data[ival.start + rand() % (ival.end+1-ival.start)]))/c;
     }
     pivot /= ival.p;
-    T global_pivot;
-    MPI_Reduce(&pivot,&global_pivot,1,mpi_type,MPI_SUM,0,ival.comm);
-    MPI_Bcast(&global_pivot,1,mpi_type,0,ival.comm);
+    double global_pivot;
+    MPI_Reduce(&pivot,&global_pivot,1,MPI_DOUBLE,MPI_SUM,0,ival.comm);
+    MPI_Bcast(&global_pivot,1,MPI_DOUBLE,0,ival.comm);
     ival.pivot = global_pivot;
-    return global_pivot;
+    return static_cast<T>(global_pivot);
   }
   
   int partition_data(QSInterval<T> &ival) {
@@ -454,9 +454,9 @@ private:
       MPI_Gather(&d,1,mpi_type,data_recv,1,mpi_type,cur_proc.first,ival.comm);
       int min_proc = -1;
       if(ival.rank == cur_proc.first) {
-	T min_d = numeric_limits<T>::min();
+	T min_d = numeric_limits<T>::max();
 	for(int i = 0; i < ival.p; i++) {
-	  if(min_d < data_recv[i]) {
+	  if(min_d > data_recv[i]) {
 	   min_d = data_recv[i];
 	   min_proc = i;
 	  }
@@ -472,7 +472,7 @@ private:
       data[i] = buffer[i];
   }
   
-  void printArray(int N, int rank, T *array) {
+  void printArray(int rank, T *array) {
     for(int i = 0; i < N; i++)
       cout << array[i] << "("<<rank<<") ";
     cout << endl;

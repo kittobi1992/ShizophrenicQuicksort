@@ -4,13 +4,10 @@
 
 using namespace std;
 
-//Macros
-#define V(X) cout << #X << "=" << X << endl
-#define W(X) #X << "=" << X
-
+enum class SORT_TYPE : uint8_t {Int, Double, Long, Float};
 
 template<typename T>
-class GenericDatatype {
+class SortingDatatype {
  
 public:
   
@@ -27,6 +24,19 @@ public:
       return MPI_FLOAT;
     else if(is_same<T,double>::value)
       return MPI_DOUBLE;
+  }
+  
+  static SORT_TYPE getSortType(string datatype) {
+    if(datatype.compare("int") == 0)
+      return SORT_TYPE::Int;
+    else if(datatype.compare("double") == 0)
+      return SORT_TYPE::Double;
+    else if(datatype.compare("long") == 0)
+      return SORT_TYPE::Long;
+    else if(datatype.compare("float") == 0)
+      return SORT_TYPE::Float;
+    else
+      return SORT_TYPE::Int;
   }
   
 };
