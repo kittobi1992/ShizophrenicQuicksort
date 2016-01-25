@@ -56,6 +56,7 @@ public:
       cout << "RESULT "
 	   << "benchmark=" << benchmark << " "
 	   << "P=" << size << " "
+	   << "N=" << N << " "
 	   << "algo=ShizophrenicQuicksort "
 	   << "seed=" << seed << " "
 	   << "datatype=" << typeid(T).name() << " "

@@ -29,6 +29,8 @@ int main(int argc, char** argv) {
     std::chrono::duration<double> elapsed_seconds = end - start;
     cout << "RESULT benchmark=" << benchmark
 	 << " algo=GNU_Parallel" 
-         << " runningTime=" << elapsed_seconds.count() 
+	 << " N=" << N
+	 << " datatype=" << typeid(int).name()
+         << " time=" << elapsed_seconds.count() 
 	 << " isSorted=" << isSorted(data,N) << endl;
 }
