@@ -1,3 +1,12 @@
+/*****************************************************************************
+ * This file is part of Project ShizophrenicQuicksort 
+ * https://github.com/kittobi1992/ShizophrenicQuicksort.git
+ * 
+ * Copyright (c) 2016-2017, Tobias Heuer <tobias.heuer@gmx.net>
+ *
+ * All rights reserved. Published under the BSD-2 license in the LICENSE file.
+ ******************************************************************************/
+
 #include <bits/stdc++.h>
 #include <chrono>
 #include <parallel/algorithm>
